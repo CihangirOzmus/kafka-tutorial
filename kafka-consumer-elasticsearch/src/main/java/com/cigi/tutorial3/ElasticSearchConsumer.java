@@ -1,5 +1,6 @@
 package com.cigi.tutorial3;
 
+import com.google.gson.JsonParser;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -70,6 +71,11 @@ public class ElasticSearchConsumer {
         return consumer;
     }
 
+    private static String extractIdFromTweet(String tweetJson) {
+        //gson library
+        return JsonParser.parseString(tweetJson).getAsJsonObject().get("id_str").getAsString();
+    }
+
     public static void main(String[] args) throws IOException {
         Logger logger = LoggerFactory.getLogger(ElasticSearchConsumer.class.getName());
         RestHighLevelClient client = createClient();
@@ -83,11 +89,12 @@ public class ElasticSearchConsumer {
             //where I insert data into elasticsearch
             for (ConsumerRecord<String, String> record : records) {
                 String jsonString = record.value();
+                String id = extractIdFromTweet(record.value());
                 CreateIndexRequest request = new CreateIndexRequest("twitter");
                 request.source(jsonString, XContentType.JSON);
 
                 BulkRequest bulkRequest = new BulkRequest();
-                IndexRequest indexRequest = new IndexRequest("twitter").source(record.value(), XContentType.JSON);
+                IndexRequest indexRequest = new IndexRequest("twitter").source(record.value(), XContentType.JSON).id(id);
                 bulkRequest.add(indexRequest);
 
                 BulkResponse responses = client.bulk(bulkRequest, RequestOptions.DEFAULT);
