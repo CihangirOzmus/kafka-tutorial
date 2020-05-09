@@ -7,6 +7,8 @@ import org.apache.http.client.CredentialsProvider;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.elasticsearch.action.bulk.BulkItemResponse;
@@ -18,13 +20,12 @@ import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.client.indices.CreateIndexRequest;
-import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Properties;
 
@@ -73,29 +74,35 @@ public class ElasticSearchConsumer {
         Logger logger = LoggerFactory.getLogger(ElasticSearchConsumer.class.getName());
         RestHighLevelClient client = createClient();
 
-        String jsonString = "{\"foo\":\"bar\"}";
-        CreateIndexRequest request = new CreateIndexRequest("twitter");
-        request.source(jsonString, XContentType.JSON);
+        KafkaConsumer<String, String> consumer = createConsumer("twitter_tweets");
 
-        BulkRequest bulkRequest = new BulkRequest();
-        XContentBuilder builder = XContentFactory.jsonBuilder()
-                .startObject()
-                .field("foo", "bar")
-                .endObject();
+        //poll for new data
+        while (true) {
+            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
 
-        IndexRequest indexRequest = new IndexRequest("twitter");
-        indexRequest.source(builder);
-        bulkRequest.add(indexRequest);
+            //where I insert data into elasticsearch
+            for (ConsumerRecord<String, String> record : records) {
+                String jsonString = record.value();
+                CreateIndexRequest request = new CreateIndexRequest("twitter");
+                request.source(jsonString, XContentType.JSON);
 
-        BulkResponse responses = client.bulk(bulkRequest, RequestOptions.DEFAULT);
-        for (BulkItemResponse item : responses.getItems()) {
-            logger.info(item.getId());
+                BulkRequest bulkRequest = new BulkRequest();
+                IndexRequest indexRequest = new IndexRequest("twitter").source(record.value(), XContentType.JSON);
+                bulkRequest.add(indexRequest);
 
-            KafkaConsumer<String, String> consumer = createConsumer("twitter_tweets");
+                BulkResponse responses = client.bulk(bulkRequest, RequestOptions.DEFAULT);
+                for (BulkItemResponse item : responses.getItems()) {
+                    logger.info(item.getId());
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
 
-
+            }
         }
 
-        client.close();
+        //client.close();
     }
 }
