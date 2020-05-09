@@ -50,10 +50,9 @@ public class ElasticSearchConsumer {
         return client;
     }
 
-    public static KafkaConsumer<String, String> createConsumer() {
+    public static KafkaConsumer<String, String> createConsumer(String topic) {
         String bootstrapServers = "127.0.0.1:9092";
         String groupId = "kafka-demo-elasticsearch";
-        String topic = "twitter_tweets";
 
         //create consumer configs
         Properties properties = new Properties();
@@ -91,6 +90,10 @@ public class ElasticSearchConsumer {
         BulkResponse responses = client.bulk(bulkRequest, RequestOptions.DEFAULT);
         for (BulkItemResponse item : responses.getItems()) {
             logger.info(item.getId());
+
+            KafkaConsumer<String, String> consumer = createConsumer("twitter_tweets");
+
+
         }
 
         client.close();
