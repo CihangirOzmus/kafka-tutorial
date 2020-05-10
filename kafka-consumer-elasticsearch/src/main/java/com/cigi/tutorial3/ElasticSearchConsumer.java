@@ -64,7 +64,7 @@ public class ElasticSearchConsumer {
         properties.setProperty(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         properties.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         properties.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-        properties.setProperty(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "10");
+        properties.setProperty(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "100");
 
         //create a consume
         KafkaConsumer<String, String> consumer = new KafkaConsumer<String, String>(properties);
@@ -87,19 +87,26 @@ public class ElasticSearchConsumer {
         //poll for new data
         while (true) {
             ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(100));
-            logger.info("Received " + records.count() + " records");
+            int recordCount = records.count();
+            logger.info("Received " + recordCount + " records");
 
             //where I insert data into elasticsearch
+            BulkRequest bulkRequest = new BulkRequest();
             for (ConsumerRecord<String, String> record : records) {
                 String jsonString = record.value();
                 String id = extractIdFromTweet(record.value());
-                CreateIndexRequest request = new CreateIndexRequest("twitter");
-                request.source(jsonString, XContentType.JSON);
+                try {
+                    CreateIndexRequest request = new CreateIndexRequest("twitter");
+                    request.source(jsonString, XContentType.JSON);
 
-                BulkRequest bulkRequest = new BulkRequest();
-                IndexRequest indexRequest = new IndexRequest("twitter").source(record.value(), XContentType.JSON).id(id);
-                bulkRequest.add(indexRequest);
+                    IndexRequest indexRequest = new IndexRequest("twitter").source(record.value(), XContentType.JSON).id(id);
+                    bulkRequest.add(indexRequest);
+                } catch (NullPointerException e) {
+                    logger.warn("Skipping bad data: " + record.value());
+                }
+            }
 
+            if (recordCount > 0) {
                 BulkResponse responses = client.bulk(bulkRequest, RequestOptions.DEFAULT);
                 for (BulkItemResponse item : responses.getItems()) {
                     logger.info(item.getId());
@@ -109,15 +116,16 @@ public class ElasticSearchConsumer {
                         e.printStackTrace();
                     }
                 }
-                logger.info("Committing offsets...");
-                consumer.commitSync();
-                logger.info("Offsets have been committed");
+            }
 
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
+            logger.info("Committing offsets...");
+            consumer.commitSync();
+            logger.info("Offsets have been committed");
+
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
         }
 
